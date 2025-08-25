@@ -1,0 +1,21 @@
+services:
+  client:
+    build:
+      context: client
+      dockerfile: Dockerfile.dev
+    env_file:
+      - .env.dev
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    ports:
+      - 80:5173
+
+  server:
+    build:
+      context: server
+      dockerfile: Dockerfile.dev
+    volumes:
+      - ./server:/app
+    ports:
+      - 8000:8000
