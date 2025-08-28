@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import * as d3 from "d3";
-import { Menu, Maximize2, Minimize2, RotateCcw, Settings } from "lucide-react";
+import { Menu, Maximize2, Minimize2, Settings } from "lucide-react";
 
 // --------------------------- Types ---------------------------
 
@@ -131,12 +131,13 @@ function UploadJson({ onLoad }: { onLoad: (data: any) => void }) {
   useEffect(() => {
     const el = dropRef.current;
     if (!el) return;
-    const prevent = (e: DragEvent) => {
+    const prevent = (e: Event) => {
       e.preventDefault();
       e.stopPropagation();
     };
     const onDrop = async (e: DragEvent) => {
-      prevent(e);
+      e.preventDefault();
+      e.stopPropagation();
       const file = e.dataTransfer?.files?.[0];
       if (!file) return;
       try {
@@ -326,6 +327,7 @@ function D3Graph({
   keepNodes,
   keepLinks,
   hideNonMatches,
+  nodeStyles,
 }: {
   nodes: GraphNode[];
   links: GraphLink[];
@@ -340,13 +342,14 @@ function D3Graph({
   keepNodes?: Set<string>;
   keepLinks?: Set<string>;
   hideNonMatches?: boolean;
+  nodeStyles?: Map<string, { color?: string; radius?: number }>;
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
-  const simRef = useRef<d3.Simulation<any, any> | null>(null);
-  const circleRef = useRef<d3.Selection<SVGCircleElement, any, any, any> | null>(null);
-  const linkRef = useRef<d3.Selection<SVGLineElement, any, any, any> | null>(null);
-  const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity);
-  const textRef = useRef<d3.Selection<SVGTextElement, any, any, any> | null>(null);
+  const simRef = useRef<any | null>(null);
+  const circleRef = useRef<any | null>(null);
+  const linkRef = useRef<any | null>(null);
+  const transformRef = useRef<any>(d3.zoomIdentity);
+  const textRef = useRef<any | null>(null);
 
   // Build / rebuild only when nodes or links change
   useEffect(() => {
@@ -361,16 +364,16 @@ function D3Graph({
     g.attr("transform", transformRef.current.toString());
 
     const zoom = d3
-      .zoom<SVGSVGElement, unknown>()
+      .zoom()
       .scaleExtent([params.zoomMin, params.zoomMax])
-      .on("zoom", (event) => {
+      .on("zoom", (event: any) => {
         g.attr("transform", event.transform.toString());
         transformRef.current = event.transform;
       });
     svg.call(zoom as any);
     svg.on("dblclick.zoom", null);
     // Background click — do not select or show any path; let parent decide
-    svg.on("click", (event) => {
+    svg.on("click", () => {
       // Only trigger when clicking the bare SVG, not when a node/link handles it
       if (typeof onBackgroundClick === 'function') {
         onBackgroundClick();
@@ -417,13 +420,17 @@ function D3Graph({
 
     const circle = node
       .append("circle")
-      .attr("r", (d) => {
-        return d.type === "value"
+      .attr("r", (d: any) => {
+        const ov = nodeStyles?.get(d.id);
+        const base = d.type === "value"
           ? params.nodeRadiusValue
           : (d.type === "array" ? params.nodeRadiusArray : params.nodeRadiusObject);
+        return typeof ov?.radius === 'number' ? ov.radius : base;
       })
-      .attr("fill", (d) => {
+      .attr("fill", (d: any) => {
+        const ov = nodeStyles?.get(d.id);
         if ((d as any).id === 'root') return '#000000';
+        if (ov?.color) return ov.color;
         return (d as any).color ?? (d.type === "value" ? "#cbd5e1" : (d.type === "array" ? "#cbd5e1" : "#cbd5e1"));
       })
       .attr("stroke", (d: any) => (selected && d.id === selected ? "#ef4444" : "#334155"))
@@ -448,7 +455,7 @@ function D3Graph({
       .attr("x", 10)
       .attr("y", 3)
       .attr("font-size", 11)
-      .text((d) => shortLabel(d.label, 40))
+      .text((d: any) => shortLabel(d.label, 40))
       .style("display", (d: any) => {
         const keep = !keepNodes || keepNodes.size === 0 || keepNodes.has(d.id);
         return hideNonMatches && !keep ? "none" : null;
@@ -474,45 +481,47 @@ function D3Graph({
       .force(
         "collision",
         d3.forceCollide().radius((d: any) => {
+          const ov = nodeStyles?.get(d.id);
           const base = d.type === "value"
             ? params.nodeRadiusValue
             : (d.type === "array" ? params.nodeRadiusArray : params.nodeRadiusObject);
-          return base + params.collisionPadding;
+          const r = typeof ov?.radius === 'number' ? ov.radius : base;
+          return r + params.collisionPadding;
         })
       );
 
     const drag = d3
-      .drag<SVGGElement, any>()
-      .on("start", (event, d: any) => {
+      .drag()
+      .on("start", (event: any, d: any) => {
         if (!event.active) sim.alphaTarget(0.3).restart();
         d.fx = d.x;
         d.fy = d.y;
       })
-      .on("drag", (event, d: any) => {
+      .on("drag", (event: any, d: any) => {
         d.fx = event.x;
         d.fy = event.y;
       })
-      .on("end", (event, d: any) => {
+      .on("end", (event: any, d: any) => {
         if (!event.active) sim.alphaTarget(0);
         d.fx = null;
         d.fy = null;
       });
 
     node.call(drag as any);
-    node.on("click", (event, d: any) => {
+    node.on("click", (event: any, d: any) => {
       event.stopPropagation();
       if (typeof onNodeClick === 'function') {
         onNodeClick(d.id);
       }
     });
-    node.on("contextmenu", (event, d: any) => {
+    node.on("contextmenu", (event: any, d: any) => {
       event.preventDefault();
       event.stopPropagation();
       if (typeof onNodeContextMenu === 'function') {
         onNodeContextMenu(d.id, (event as MouseEvent).clientX, (event as MouseEvent).clientY);
       }
     });
-    node.on("dblclick", (event, d: any) => {
+    node.on("dblclick", (_: any, d: any) => {
       if (typeof onNodeDoubleClick === 'function') {
         onNodeDoubleClick(d.id);
       }
@@ -543,30 +552,45 @@ function D3Graph({
   useEffect(() => {
     const sim = simRef.current;
     if (!sim) return;
-    const linkForce = sim.force("link") as d3.ForceLink<any, any> | null;
+  const linkForce = sim.force("link") as any | null;
     if (linkForce) {
       linkForce.distance(params.linkDistance).strength(params.linkStrength);
     }
-    const chargeForce = sim.force("charge") as d3.ForceManyBody<any> | null;
+  const chargeForce = sim.force("charge") as any | null;
     if (chargeForce) {
       chargeForce.strength(params.chargeStrength as number);
     }
-    const collisionForce = sim.force("collision") as d3.ForceCollide<any> | null;
+  const collisionForce = sim.force("collision") as any | null;
     if (collisionForce) {
       collisionForce.radius((d: any) => {
+        const ov = nodeStyles?.get(d.id);
         const base = d.type === "value"
           ? params.nodeRadiusValue
           : (d.type === "array" ? params.nodeRadiusArray : params.nodeRadiusObject);
-        return base + params.collisionPadding;
+        const r = typeof ov?.radius === 'number' ? ov.radius : base;
+        return r + params.collisionPadding;
       });
     }
     sim.alpha(0.7).restart();
-  }, [params]);
+  }, [params, nodeStyles]);
 
   // Update selection and highlight styles for nodes and links
   useEffect(() => {
     if (circleRef.current) {
       circleRef.current
+        .attr('r', (d: any) => {
+          const ov = nodeStyles?.get(d.id);
+          const base = d.type === 'value'
+            ? params.nodeRadiusValue
+            : (d.type === 'array' ? params.nodeRadiusArray : params.nodeRadiusObject);
+          return typeof ov?.radius === 'number' ? ov.radius : base;
+        })
+        .attr('fill', (d: any) => {
+          const ov = nodeStyles?.get(d.id);
+          if ((d as any).id === 'root') return '#000000';
+          if (ov?.color) return ov.color;
+          return (d.type === 'value' ? '#cbd5e1' : (d.type === 'array' ? '#cbd5e1' : '#cbd5e1'));
+        })
         .attr('stroke', (d: any) => (selected && d.id === selected ? '#ef4444' : '#334155'))
         .attr('stroke-width', (d: any) => {
           if (selected && d.id === selected) return 3;
@@ -620,12 +644,45 @@ function D3Graph({
 
 
 const SAMPLE = {
-  name: "Example",
-  users: [
-    { id: 1, name: "Alice", tags: ["admin", "editor"] },
-    { id: 2, name: "Bob", active: true },
+  user: {
+    id: 1,
+    name: "Alice",
+    email: "alice@example.com",
+    roles: ["admin", "editor"],
+    profile: {
+      age: 30,
+      address: {
+        city: "Wonderland",
+        zip: "12345"
+      }
+    }
+  },
+  posts: [
+    {
+      id: 101,
+      title: "Hello World",
+      tags: ["intro", "welcome"],
+      published: true,
+      comments: [
+        { id: 1, author: "Bob", text: "Nice post!" },
+        { id: 2, author: "Charlie", text: "Thanks for sharing." }
+      ]
+    },
+    {
+      id: 102,
+      title: "Another Post",
+      tags: [],
+      published: false,
+      comments: []
+    }
   ],
-  settings: { theme: "light", version: 1 },
+  settings: {
+    theme: "dark",
+    notifications: {
+      email: true,
+      sms: false
+    }
+  }
 };
 
 const DEFAULT_PARAMS: GraphParams = {
@@ -657,18 +714,29 @@ export default function App() {
   const [graphMenu, setGraphMenu] = useState<{x:number;y:number;path:string}|null>(null);
   const [settingsOpen, setSettingsOpen] = useState<boolean>(false);
   // --- Filter state ---
-  type Filter = { id: string; query: string; byKey: boolean; byValue: boolean };
+  type Filter = { id: string; query: string; byKey: boolean; byValue: boolean; color?: string; radius?: number };
   const [filterText, setFilterText] = useState<string>('');
   const [filterByKey, setFilterByKey] = useState<boolean>(true);
   const [filterByValue, setFilterByValue] = useState<boolean>(false);
+  const [newColor, setNewColor] = useState<string>("#cbd5e1");
+  const [newRadius, setNewRadius] = useState<string>(String(DEFAULT_PARAMS.nodeRadiusObject));
   const [filters, setFilters] = useState<Filter[]>([]);
   const addFilter = () => {
     const q = filterText.trim();
     if (!q) return;
     if (!filterByKey && !filterByValue) return;
-    const f: Filter = { id: String(Date.now()) + Math.random().toString(36).slice(2), query: q, byKey: filterByKey, byValue: filterByValue };
+    const r = newRadius.trim() ? Number(newRadius) : undefined;
+    const f: Filter = {
+      id: String(Date.now()) + Math.random().toString(36).slice(2),
+      query: q,
+      byKey: filterByKey,
+      byValue: filterByValue,
+      color: newColor || undefined,
+      radius: typeof r === 'number' && !Number.isNaN(r) ? r : undefined,
+    };
     setFilters(prev => [...prev, f]);
     setFilterText('');
+    setNewRadius(String(DEFAULT_PARAMS.nodeRadiusObject));
   };
   const removeFilter = (id: string) => setFilters(prev => prev.filter(f => f.id !== id));
   const [hideNonMatches, setHideNonMatches] = useState<boolean>(false);
@@ -759,7 +827,7 @@ export default function App() {
     let cur: string | null = selectedPath;
     while (cur) {
       s.add(cur);
-      const p = parentMap.get(cur) ?? null;
+      const p: string | null = parentMap.get(cur) ?? null;
       cur = p;
     }
     return s;
@@ -778,17 +846,23 @@ export default function App() {
     return s;
   }, [selectedPath, parentMap]);
 
-  // Compute filter keep sets (nodes to keep fully visible and links along root→match paths)
-  const { keepNodeSet, keepLinkSet } = useMemo(() => {
-    if (filters.length === 0) return { keepNodeSet: undefined, keepLinkSet: undefined } as { keepNodeSet?: Set<string>; keepLinkSet?: Set<string> };
+  // Compute filter keep sets (nodes to keep fully visible and links along root→match paths) and style map
+  const { keepNodeSet, keepLinkSet, styleMap } = useMemo(() => {
+    if (filters.length === 0) return { keepNodeSet: undefined, keepLinkSet: undefined, styleMap: undefined } as { keepNodeSet?: Set<string>; keepLinkSet?: Set<string>; styleMap?: Map<string, { color?: string; radius?: number }> };
     const matches = new Set<string>();
-    // Match by key/value
+    const styles = new Map<string, { color?: string; radius?: number }>();
+    // Match by key/value; later filters override earlier ones for style
     nodeMap.forEach((t) => {
       for (const f of filters) {
-        const q = f.query.toLowerCase();
-        const keyHit = f.byKey && t.name?.toLowerCase().includes(q);
-        const valHit = f.byValue && t.type === 'value' && JSON.stringify(t.value ?? '').toLowerCase().includes(q);
-        if (keyHit || valHit) { matches.add(t.path); break; }
+        const q = f.query;
+        const keyHit = f.byKey && t.name === q;
+        const valHit = f.byValue && t.type === 'value' && t.value === q;
+        if (keyHit || valHit) {
+          matches.add(t.path);
+          if (f.color || typeof f.radius === 'number') {
+            styles.set(t.path, { color: f.color, radius: f.radius });
+          }
+        }
       }
     });
     const keepNodes = new Set<string>();
@@ -805,7 +879,7 @@ export default function App() {
       }
     };
     for (const m of matches) addPath(m);
-    return { keepNodeSet: keepNodes, keepLinkSet: keepLinks };
+    return { keepNodeSet: keepNodes, keepLinkSet: keepLinks, styleMap: styles };
   }, [filters, nodeMap, parentMap]);
   
   const findTreeNode = (node: TreeNode, path: string): TreeNode | null => {
@@ -930,6 +1004,29 @@ export default function App() {
           <input type="checkbox" checked={filterByValue} onChange={(e) => setFilterByValue(e.target.checked)} />
           value
         </label>
+        <label className="inline-flex items-center gap-1" title="node color for matches">
+          <span className="text-neutral-500">color</span>
+          <input
+            type="color"
+            value={newColor}
+            onChange={(e) => setNewColor(e.target.value)}
+            className="h-6 w-6 p-0 border border-neutral-300 rounded"
+          />
+        </label>
+        <label className="inline-flex items-center gap-1" title="node radius for matches">
+          <span className="text-neutral-500">r</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            min={2}
+            max={64}
+            step={1}
+            placeholder="—"
+            className="w-16 border border-neutral-300 rounded px-1 py-0.5"
+            value={newRadius}
+            onChange={(e) => setNewRadius(e.target.value)}
+          />
+        </label>
         <button className="px-2 py-1 border border-neutral-300 rounded hover:bg-neutral-50" onClick={addFilter}>Add</button>
         <label className="inline-flex items-center gap-1 ml-2">
           <input
@@ -942,9 +1039,16 @@ export default function App() {
         <div className="flex items-center gap-2 flex-wrap">
           {filters.map(f => (
             <span key={f.id} className="inline-flex items-center gap-2 px-2 py-1 rounded border border-neutral-300 bg-white">
+              {f.color && (
+                <span
+                  className="inline-block w-3 h-3 rounded border border-neutral-300"
+                  style={{ backgroundColor: f.color }}
+                  title={f.color}
+                />
+              )}
               <span className="font-mono">{f.query}</span>
               <span className="text-[10px] text-neutral-600">
-                [{[f.byKey ? 'key' : null, f.byValue ? 'value' : null].filter(Boolean).join('+')}]
+                {[f.byKey ? 'key' : null, f.byValue ? 'value' : null].filter(Boolean).join('+')}{typeof f.radius === 'number' ? `, r=${f.radius}` : ''}
               </span>
               <button className="text-neutral-500 hover:text-neutral-800" onClick={() => removeFilter(f.id)}>×</button>
             </span>
@@ -1025,6 +1129,7 @@ export default function App() {
             keepNodes={keepNodeSet}
             keepLinks={keepLinkSet}
             hideNonMatches={hideNonMatches}
+            nodeStyles={styleMap}
             onNodeClick={(path) => { setSelectedPath(path); setGraphMenu(null); }}
             onNodeDoubleClick={handleGraphNodeDblClick}
             onNodeContextMenu={(path, x, y) => {
